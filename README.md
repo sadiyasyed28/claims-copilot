@@ -1,293 +1,204 @@
 # 🧠 Claims Copilot
 
-> An AI-powered insurance assistant that turns complex insurance documents into clear, grounded answers you can actually trace back to the source.
+> An intelligent, grounded insurance assistant that transforms dense policies, claims, and damage estimates into precise, verifiable answers backed by exact source citations.
 
-[Architecture](#-architecture) • [RAG Pipeline](#-document-intelligence-pipeline) • [How AI Works](#-how-the-ai-works) • [Getting Started](#-getting-started) • [Deep Dive Docs](docs/README.md)
-
----
-
-## 📌 Overview
-
-Insurance documents are inherently complex. Critical details regarding coverage limits, deductibles, exclusions, and reporting deadlines are often spread across lengthy policy schedules, claim forms, damage estimates, and supporting receipts.
-
-**Claims Copilot** bridges this gap. By combining multi-format document processing (PDF parsing and OCR) with high-dimensional vector embeddings, fast vector search (`pgvector`), and grounded LLM generation, Claims Copilot delivers precise, evidence-backed answers directly linked to uploaded document sources.
+[Features](#-core-features) • [RAG Pipeline](#-how-the-rag-pipeline-works) • [Architecture](#-architecture) • [Getting Started](#-getting-started) • [Deep Dive Docs](docs/README.md)
 
 ---
 
 ## ✨ What It Does
 
-- 📄 **Multi-Format Document Ingestion** — Upload insurance policies, claim forms, receipts, or estimates in PDF format (via `unpdf`) or image formats (`PNG`/`JPEG` via `tesseract.js` OCR).
-- 🧠 **Vector Embeddings & Storage** — Automatically chunks text into ~2,000-character segments with 200-character overlap and generates 384-dimensional vector embeddings using Hugging Face's `BAAI/bge-small-en-v1.5` model.
-- 🔎 **Retrieval-Augmented Generation (RAG)** — Queries vector representations stored in Supabase Postgres using custom RPC functions (`match_document_chunks`) with strict Row-Level Security (RLS) enforcement.
-- 💬 **Grounded AI Copilot** — Powered by Groq LLMs (`openai/gpt-oss-120b`), generating concise (1–3 sentence) answers strictly constrained to retrieved document context with zero hallucinations.
-- 📌 **Traceable Citations & Confidence Scoring** — Every AI response includes exact source document citations, chunk indices, page numbers, and a confidence rating (`high`, `medium`, `low`).
-- 📊 **Interactive Analysis** — Run quick analysis tasks (Coverage & Deductible Assessment, Exclusions Check, Missing Documentation Audit, Estimate & Discrepancy Reporting) across all uploaded files.
-- 🧾 **Claim Timeline** — Track event progression and milestones (e.g., incident date, policy effective period, claim submission) in a clean visual timeline.
-- 💾 **Analysis History** — Save completed analyses, review detailed findings, export reports as plain text files, or continue past analysis sessions.
-- 🔐 **Isolated User Data** — Secured with Supabase Authentication and database RLS policies to ensure user data remains completely private and isolated.
+Claims Copilot provides a unified, conversational workspace for policyholders and claims reviewers:
+
+1. **Sign In & Authenticate** — Secure user sessions managed via Supabase Auth.
+2. **Upload Documents** — Ingest insurance policies, claim forms, damage estimates, and receipts (PDFs and PNG/JPEG images).
+3. **Automated Extraction & Indexing** — Extracts raw text via `unpdf` or `tesseract.js` OCR, generates 384-dimensional vector embeddings, and stores chunks in Supabase `pgvector`.
+4. **Ask the Copilot** — Ask natural-language questions (e.g., *"What is my claim status?"*, *"What is my deductible?"*, *"Are water damage repairs covered?"*).
+5. **Grounded Answers & Citations** — Receive concise, hallucination-free answers backed by exact source document citations, page numbers, and chunk references.
+6. **Structured Document Analysis** — Run automated coverage checks, exclusions audits, and discrepancy reports.
+7. **Claim Milestones & Timeline** — Track key event progression and claim milestones chronologically.
 
 ---
 
-## 🎯 Product Flow
+## 💡 Why It Exists
 
-```
-Upload Document ➔ Extract & Chunk ➔ Generate Embeddings ➔ Ask Question ➔ Retrieve Context ➔ Grounded Answer ➔ Track & Analyze
-```
+Insurance documentation is notoriously fragmented. Critical details about coverage limits, deductible clauses, exclusions, filing deadlines, and payout calculations are typically scattered across 40-page policy schedules, handwritten claim forms, and contractor estimates.
 
-1. **Upload**: User uploads an insurance policy or claim document (PDF, PNG, or JPEG).
-2. **Process**: Server extracts text, splits it into overlapping chunks, generates embeddings, and persists metadata.
-3. **Ask**: User submits a query in the AI Copilot chat interface.
-4. **Retrieve**: System performs vector cosine similarity search over the user's chunk library.
-5. **Answer**: LLM synthesizes a grounded answer using *only* the retrieved context and attaches source citations.
-6. **Analyze & Track**: User runs automated coverage audits or tracks claim milestones in the Claim Timeline.
+**Claims Copilot** eliminates manual search friction. Instead of searching through pages of legal terminology, users can converse with an AI copilot whose answers are strictly grounded in their uploaded files. If a detail is missing from the document, the assistant explicitly states that it is unavailable rather than fabricating answers.
+
+---
+
+## ⚡ Core Features
+
+- 📄 **Multi-Format Ingestion** — Support for digital PDF documents (`unpdf`) and image scans (`tesseract.js` OCR for PNG and JPEG).
+- 🧠 **Vector Embeddings & pgvector** — 384-dimensional dense embeddings (`BAAI/bge-small-en-v1.5`) stored directly in PostgreSQL using the `pgvector` extension.
+- 🔎 **Intent-Aware RAG** — Classifies user question intent (`claim_information`, `policy_coverage`, `documents_needed`, `deductible_limits`, `discrepancies`) and dynamically expands queries into multiple semantic search variants.
+- 💬 **Evidence-Grounded AI Copilot** — Powered by Groq's high-speed inference engine (`openai/gpt-oss-120b`) with strict system prompts enforcing zero hallucinations and 1–3 sentence answers.
+- 📌 **Traceable Citations & Confidence Ratings** — Every answer maps back to specific document chunks, filenames, page numbers, and similarity confidence scores (`high`, `medium`, `low`).
+- 🧩 **Evidence-Aware Partial Answers** — When documents contain partial answers (e.g. claim number and status are found, but completion date is missing), the assistant answers what is supported and explicitly declares what is absent.
+- 📊 **Interactive Analysis** — Quick analysis triggers for Coverage & Deductible Assessment, Exclusions & Limitations Check, Missing Documentation Audit, and Estimate & Discrepancy Reporting.
+- 💾 **Saved Analysis History** — Persist analysis findings, review summaries, continue past sessions, and export reports as text files.
+- 🧾 **Claim Timeline** — Chronological event tracking to record milestones (incident reported, estimate received, adjuster assigned, claim approved).
+- 🔐 **Multi-Tenant User Isolation** — Supabase Row-Level Security (RLS) guarantees that users can only search, view, and retrieve their own uploaded files and embeddings.
+
+---
+
+## 📄 How the RAG Pipeline Works
+
+```mermaid
+flowchart TD
+    User([User]) -->|1. Uploads File| UploadAPI["/api/documents/upload"]
+    UploadAPI -->|2. Save Raw File| Storage["Supabase Storage ('documents' bucket)"]
+    UploadAPI -->|3. Extract Text| Parser{"File Type?"}
+    Parser -->|"PDF"| Unpdf["unpdf Text Extractor"]
+    Parser -->|"PNG / JPEG"| Tesseract["tesseract.js OCR"]
+    
+    Unpdf & Tesseract -->|4. Split (~2000 chars, 200 overlap)| Chunks["Text Chunks"]
+    Chunks -->|5. Generate Embeddings| HF["Hugging Face API (BAAI/bge-small-en-v1.5)"]
+    HF -->|6. 384-dim Vectors| PG[("Supabase Postgres (pgvector)")]
+    
+    User -->|7. Ask Question| ChatAPI["/api/chat"]
+    ChatAPI -->|8. Intent Analysis & Query Expansion| QueryEngine["Query Understanding Engine"]
+    QueryEngine -->|9. Question Vectors| RPC["match_document_chunks() RPC"]
+    PG --> RPC
+    RPC -->|10. Top Matching Chunks| Context["Grounded Context Assembly"]
+    Context -->|11. System Prompt + Context| Groq["Groq API (openai/gpt-oss-120b)"]
+    Groq -->|12. Grounded Answer + Citations| User
+```
 
 ---
 
 ## 🏗️ Architecture
 
-Claims Copilot is built on a modern Next.js 16 (App Router) frontend and API layer, backed by Supabase for authentication, storage, and vector database persistence.
+Claims Copilot uses a full-stack Next.js architecture integrated with Supabase and specialized AI inference endpoints:
 
-```mermaid
-graph TD
-    subgraph Client ["Client (Browser)"]
-        UI["Next.js App Router (React 19)"]
-        CTX["AppContext (State Management)"]
-        UI --- CTX
-    end
-
-    subgraph Server ["Next.js Server API Routes"]
-        AUTH_MW["Supabase Auth Middleware"]
-        UP_API["/api/documents/upload"]
-        CHAT_API["/api/chat (RAG Engine)"]
-        SESS_API["/api/analysis-sessions"]
-    end
-
-    subgraph StorageDB ["Supabase Infrastructure"]
-        S_AUTH["Supabase Auth"]
-        S_STOR["Supabase Storage ('documents' bucket)"]
-        PG["Postgres + pgvector"]
-        RPC["match_document_chunks() RPC"]
-        PG --- RPC
-    end
-
-    subgraph AI ["AI Services"]
-        HF["Hugging Face Inference API (BAAI/bge-small-en-v1.5)"]
-        GROQ["Groq Inference API (openai/gpt-oss-120b)"]
-    end
-
-    UI --> AUTH_MW
-    AUTH_MW --> S_AUTH
-    UP_API --> S_STOR
-    UP_API --> HF
-    UP_API --> PG
-    CHAT_API --> HF
-    CHAT_API --> RPC
-    CHAT_API --> GROQ
-    SESS_API --> PG
-```
-
-For detailed architectural flowcharts and sequence diagrams, explore [docs/README.md](docs/README.md).
+- **Frontend & UI Layer**: Next.js 16 (App Router) with React 19, Tailwind CSS v4, and React Context (`AppContext`). Neo-brutalist interface designed for speed and clarity.
+- **Server API Routes**: Next.js Serverless Route Handlers managing document processing (`/api/documents/upload`), document management (`/api/documents`), chat execution (`/api/chat`), and analysis sessions (`/api/analysis-sessions`).
+- **Database & Persistence**: Supabase PostgreSQL with `pgvector` storing tables: `documents`, `document_chunks`, and `analysis_sessions`.
+- **Authentication**: Supabase Auth utilizing SSR session middleware (`src/proxy.ts`).
+- **Storage**: Supabase Storage (`documents` bucket) partitioned securely by user ID (`{userId}/{uuid}-{filename}`).
+- **Embedding Generation**: Hugging Face Inference API running `BAAI/bge-small-en-v1.5` with exponential backoff retries.
+- **LLM Inference**: Groq Cloud API running `openai/gpt-oss-120b` (temperature `0.1`) for grounded text synthesis.
 
 ---
 
-## 📄 Document Intelligence Pipeline
+## 🔄 Data Flow
 
-Whenever a document is uploaded via `/api/documents/upload`:
+When a user uploads a document:
 
-```mermaid
-flowchart LR
-    A["📄 Upload File"] --> B{"File Type?"}
-    B -->|"PDF"| C["`unpdf` Extraction"]
-    B -->|"PNG / JPEG"| D["`tesseract.js` OCR"]
-    C & D --> E["Text Chunking (~2000 chars)"]
-    E --> F["Hugging Face Embedding (384-dim)"]
-    F --> G["Batch Insert to `document_chunks`"]
-    G --> H["Status: Complete"]
-```
-
-1. **Validation**: Enforces maximum file size (10 MB) and accepted MIME types (`application/pdf`, `image/png`, `image/jpeg`).
-2. **Storage**: Saves original binary file to Supabase Storage in a path partitioned by `user_id`: `{user_id}/{uuid}-{filename}`.
-3. **Record Creation**: Creates a `documents` database record with `ocr_status = 'processing'`.
-4. **Text Extraction**: Uses `unpdf` for vector PDFs and `tesseract.js` engine for images.
-5. **Text Chunking**: Breaks extracted text into standard chunks of ~2,000 characters with 200-character overlap to retain context across boundaries.
-6. **Vector Embedding**: Sends chunks to Hugging Face (`BAAI/bge-small-en-v1.5`) with automatic retry & backoff logic to generate 384-dimensional vector embeddings.
-7. **Database Storage**: Batch inserts chunks and vectors into `document_chunks` table (`vector(384)` column).
-8. **Completion**: Updates document `ocr_status` to `'complete'`.
+1. **Validation**: Server enforces file size limits (≤10 MB) and MIME types (`application/pdf`, `image/png`, `image/jpeg`).
+2. **Storage**: The file buffer is uploaded to the Supabase Storage `documents` bucket under a user-isolated path (`{user_id}/{uuid}-{filename}`).
+3. **Database Insertion**: A new row is inserted into the `documents` table with `ocr_status = 'processing'`.
+4. **Text Extraction**: Text is parsed using `unpdf` for digital PDFs or `tesseract.js` for image files.
+5. **Chunking**: Text is segmented into chunks of ~2,000 characters with 200-character overlap.
+6. **Embedding Generation**: Each chunk is embedded into a 384-dimensional vector using Hugging Face's `BAAI/bge-small-en-v1.5`.
+7. **Vector Storage**: Chunks and vectors are batch-inserted into the `document_chunks` table.
+8. **Finalization**: Document `ocr_status` is updated to `'complete'`.
 
 ---
 
-## 🤖 How the AI Works
+## 💬 Chat / RAG Flow
 
-Claims Copilot implements Retrieval-Augmented Generation (RAG) designed specifically to eliminate model hallucinations:
+When a user submits a question in the AI Copilot:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    User->>Client: Type question in AI Copilot
-    Client->>/api/chat: Send message payload
-    /api/chat->>Hugging Face: Embed user question (384-dim)
-    Hugging Face-->>/api/chat: Return vector
-    /api/chat->>Supabase RPC: Call match_document_chunks(vector, topK=5)
-    Supabase RPC-->>/api/chat: Return top similarity chunks (with user_id check)
-    /api/chat->>Groq API: Call LLM with strict grounded prompt + retrieved chunks
-    Groq API-->>/api/chat: 1-3 sentence grounded response
-    /api/chat-->>Client: Answer + confidence rating + cited sources
-```
+    actor User
+    participant ChatAPI as /api/chat
+    participant QueryEngine as query-understanding.ts
+    participant HF as Hugging Face API
+    participant DB as Postgres (pgvector)
+    participant Groq as Groq API
 
-### System Prompt Constraints
-- **Strict Grounding**: Answer using ONLY retrieved context snippets.
-- **Conciseness**: Return answers directly in 1–3 sentences.
-- **No Speculation**: If context is missing, explicitly answer: *"The documents do not provide enough information to answer this question."*
-- **Conflict Handling**: Explicitly flag conflicts when policy text and claim details contradict each other.
+    User->>ChatAPI: "What is my claim and when will it be completed?"
+    ChatAPI->>QueryEngine: analyzeQuestion(question, history)
+    QueryEngine-->>ChatAPI: Intent + 3 Expanded Query Variants
+    
+    loop For each query variant
+        ChatAPI->>HF: Generate vector embedding (384-dim)
+        HF-->>ChatAPI: Vector
+        ChatAPI->>DB: Call match_document_chunks(vector, topK=6)
+        DB-->>ChatAPI: Matching candidate chunks (with user_id filter)
+    end
+    
+    ChatAPI->>ChatAPI: Deduplicate chunks by ID & rank by max similarity
+    ChatAPI->>Groq: Call LLM with strict grounded prompt + context chunks
+    Groq-->>ChatAPI: Grounded response (supported facts + note on missing completion date)
+    ChatAPI-->>User: Return answer + confidence rating + cited sources
+```
 
 ---
 
-## 🗂️ Application Structure
+## 🔐 Security
+
+- **User Authentication**: Handled via Supabase Auth (`@supabase/ssr`). Protected routes verify the active session with `auth.getUser()`.
+- **Row-Level Security (RLS)**: Enforced across all tables (`documents`, `document_chunks`, `analysis_sessions`). Users can only query, insert, or delete their own data.
+- **Tenant Vector Isolation**: The `match_document_chunks` database function joins the `documents` table and strictly verifies `documents.user_id = auth.uid()`.
+- **Server-Side Credential Protection**: Secrets (`SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, `HUGGINGFACE_API_KEY`) are kept in server-side API routes and are never exposed to the client.
+
+---
+
+## 🗂️ Project Structure
 
 ```
 claims-copilot/
 ├── docs/                        # Architectural documentation & sequence diagrams
 │   └── README.md
-├── scripts/                     # Automated testing & verification scripts
-│   ├── verify-phase13.ts
-│   ├── verify-phase14.ts
-│   ├── verify-phase15.ts
-│   └── test-e2e.ts
+├── scripts/                     # Verification test scripts & setup helpers
+│   ├── setup.ts                 # Safe environment initialization helper
+│   ├── verify-phase16.ts        # Adaptive RAG verification suite
+│   ├── verify-phase15.ts        # Analysis sessions verification
+│   ├── verify-phase14.ts        # Document extraction verification
+│   ├── verify-phase13.ts        # UI & view verification
+│   ├── verify-regression.ts     # Regression test suite
+│   ├── verify-upload.ts         # Upload pipeline test
+│   ├── test-e2e.ts              # End-to-end user flow test
+│   └── test-rag.ts              # Supabase RPC vector test
 ├── src/
-│   ├── app/                     # Next.js App Router (pages & API routes)
+│   ├── app/                     # Next.js App Router (Pages & API Routes)
 │   │   ├── (auth)/              # Authentication routes (/signup)
-│   │   ├── api/                 # Serverless API endpoints
+│   │   ├── api/                 # Serverless API route handlers
 │   │   │   ├── analysis-sessions/
 │   │   │   ├── chat/
 │   │   │   ├── documents/
 │   │   │   └── test-login/
 │   │   ├── login/               # Sign-in page
-│   │   ├── globals.css          # Design system & Tailwind CSS v4 setup
-│   │   ├── layout.tsx           # Main application root layout
-│   │   └── page.tsx             # View router component
-│   ├── components/              # UI components by domain
+│   │   ├── globals.css          # Tailwind CSS v4 & custom design system tokens
+│   │   ├── layout.tsx           # Application root layout
+│   │   └── page.tsx             # Main view router
+│   ├── components/              # React UI components
 │   │   ├── analysis/            # AnalysisView & Saved Analysis cards
 │   │   ├── auth/                # LoginForm & SignupForm
 │   │   ├── chat/                # ChatWindow, ChatMessage, SourceCard
-│   │   ├── dashboard/           # DashboardView & Quick Actions
+│   │   ├── dashboard/           # DashboardView & Quick Triggers
 │   │   ├── documents/           # DocumentsView & DocumentUploadModal
 │   │   ├── settings/            # SettingsView & profile info
 │   │   ├── sidebar/             # Sidebar navigation & conversations list
 │   │   └── timeline/            # TimelineView & claim event tracking
-│   ├── context/                 # Application state (AppContext.tsx)
-│   ├── lib/                     # Core library utilities
-│   │   ├── rag/                 # Embedding (embed.ts) & Retrieval (retrieve.ts)
+│   ├── context/                 # State management (AppContext.tsx)
+│   ├── lib/                     # Core application utilities
+│   │   ├── rag/                 # RAG logic (embed.ts, retrieve.ts, query-understanding.ts)
 │   │   ├── supabase/            # Supabase SSR, Client, Server, Admin clients
-│   │   └── documents-store.ts   # Document management helper store
-│   └── types/                   # TypeScript domain models & Zod schemas (index.ts)
+│   │   └── documents-store.ts   # Document management helper
+│   ├── proxy.ts                 # Session middleware handler
+│   └── types/                   # TypeScript interfaces & Zod validation schemas
 └── supabase/
-    └── migrations/              # PostgreSQL schema & RLS migrations
+    └── migrations/              # SQL migrations (pgvector, RLS, tables, RPCs)
 ```
 
 ---
 
-## 🧩 Key Components & Technologies
+## 🛠️ Commands Reference
 
-| Technology / Component | Responsibility in Claims Copilot |
+| Command | Purpose |
 |---|---|
-| **Next.js 16 (App Router)** | Framework providing UI rendering, server components, and API routing. |
-| **React 19 & Context API** | Client-side state management (`AppContext`) and dynamic view switching. |
-| **Supabase Auth & SSR** | User authentication, session persistence, and server-side cookie management. |
-| **Supabase Postgres & RLS** | Relational metadata storage with strict Row-Level Security on every table. |
-| **pgvector** | PostgreSQL extension storing 384-dimensional chunk vector embeddings. |
-| **Hugging Face Inference API** | Embedding generation using model `BAAI/bge-small-en-v1.5`. |
-| **Groq Inference API** | Ultra-fast LLM generation using model `openai/gpt-oss-120b`. |
-| **`unpdf`** | Lightweight, zero-dependency PDF text extraction engine. |
-| **`tesseract.js`** | Client/server optical character recognition (OCR) for image files (`PNG`/`JPEG`). |
-| **Zod** | Schema validation for structured analysis output. |
-| **Tailwind CSS v4** | Neo-brutalist styling system with bold borders, crisp shadows, and high contrast. |
-
----
-
-## 🗄️ Data Model
-
-### Core Entities
-
-```mermaid
-erDiagram
-    auth_users ||--o{ documents : "owns"
-    auth_users ||--o{ analysis_sessions : "creates"
-    documents ||--o{ document_chunks : "contains"
-
-    documents {
-        uuid id PK
-        string storage_path
-        string original_filename
-        bigint file_size
-        string file_type
-        uuid user_id FK
-        string document_type
-        string ocr_status
-        timestamp created_at
-    }
-
-    document_chunks {
-        uuid id PK
-        uuid document_id FK
-        integer chunk_index
-        text content
-        vector_384 embedding
-    }
-
-    analysis_sessions {
-        uuid id PK
-        uuid user_id FK
-        string title
-        string status
-        uuid policy_document_id FK
-        uuid claim_document_id FK
-        jsonb comparison_data
-        jsonb assessment_data
-    }
-```
-
----
-
-## 🔐 Security & Data Isolation
-
-- **Authentication**: All API routes (`/api/documents/*`, `/api/chat`, `/api/analysis-sessions/*`) require a valid authenticated Supabase session (`auth.getUser()`).
-- **Row-Level Security (RLS)**: Enforced directly at the database layer. Users can only select, insert, update, or delete rows where `user_id = auth.uid()`.
-- **Vector RPC Security**: The `match_document_chunks` function explicitly joins the `documents` table and checks `documents.user_id = auth.uid()` to prevent unauthorized vector retrieval across tenants.
-- **Server-Side API Key Protection**: Service Role keys, Groq API keys, and Hugging Face tokens are restricted to server-side code and are never exposed to the client.
-
----
-
-## 🧪 Verification & Testing
-
-### Verification Commands
-
-```bash
-# 1. Typecheck TypeScript files without emitting code
-npx tsc --noEmit
-
-# 2. Run ESLint code checks
-npm run lint
-
-# 3. Test production build execution
-npm run build
-```
-
-### Integration Test Scripts
-
-The project includes pre-configured integration verification scripts in the `scripts/` folder:
-
-```bash
-# Verify API authentication and document handling
-npx tsx scripts/verify-upload.ts
-
-# Run phase verification suites
-npx tsx scripts/verify-phase13.ts
-npx tsx scripts/verify-phase14.ts
-npx tsx scripts/verify-phase15.ts
-
-# Execute end-to-end flow test
-npx tsx scripts/test-e2e.ts
-```
+| `npm run dev` | Starts local Next.js development server at `http://localhost:3000` |
+| `npm run setup` | Safe setup helper (checks environment & initializes `.env.local` if missing) |
+| `npm test` | Runs the Phase 16 Adaptive RAG verification test suite |
+| `npm run lint` | Runs ESLint code quality checks |
+| `npx tsc --noEmit` | Validates TypeScript type safety across the project |
+| `npm run build` | Compiles and builds the production Next.js bundle |
 
 ---
 
@@ -296,11 +207,13 @@ npx tsx scripts/test-e2e.ts
 ### Prerequisites
 
 - **Node.js**: `v18.x` or higher
-- **npm**: `v9.x` or higher (or `pnpm`/`yarn`)
-- **Supabase Instance**: Project with `pgvector` extension enabled
-- **API Keys**: Groq API Key & Hugging Face Access Token
+- **npm**: `v9.x` or higher
+- **Supabase Project**: Active project with PostgreSQL and `pgvector` enabled
+- **API Keys**: [Groq API Key](https://console.groq.com/keys) & [Hugging Face Access Token](https://huggingface.co/settings/tokens)
 
-### Installation
+---
+
+### Step-by-Step Setup Flow
 
 1. **Clone the repository**:
    ```bash
@@ -313,110 +226,102 @@ npx tsx scripts/test-e2e.ts
    npm install
    ```
 
-3. **Configure Environment Variables**:
-   Create a `.env.local` file in the root directory:
+3. **Initialize Environment Configuration**:
+   ```bash
+   npm run setup
+   ```
+   *(Or copy `.env.example` to `.env.local` manually: `cp .env.example .env.local`)*
 
+4. **Configure Credentials in `.env.local`**:
    ```env
-   # Supabase Configuration
-   NEXT_PUBLIC_SUPABASE_URL=https://your-supabase-project.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+   # Supabase Configuration (Client-Safe)
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 
-   # AI Provider API Keys
-   GROQ_API_KEY=your_groq_api_key
-   HUGGINGFACE_API_KEY=your_huggingface_api_key
+   # Supabase Service Role (Server-Only / Private)
+   SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+
+   # AI Provider API Keys (Server-Only / Private)
+   HUGGINGFACE_API_KEY=your-huggingface-api-key
+   GROQ_API_KEY=your-groq-api-key
    ```
 
-4. **Database Setup**:
-   Execute the migration SQL scripts located in `supabase/migrations/` in order against your Supabase SQL Editor:
+5. **Apply Database Migrations**:
+   Run the migration scripts in [`supabase/migrations/`](supabase/migrations) in numerical order inside your Supabase SQL Editor:
    - `20260826_create_tables.sql` (Creates `documents` & `document_chunks` with `vector(384)`)
-   - `20260825_add_match_document_chunks.sql` (Creates the vector retrieval RPC function)
-   - `20260826182100_create_analysis_sessions.sql` (Creates `analysis_sessions`)
+   - `20260825_add_match_document_chunks.sql` (Creates vector search RPC function)
+   - `20260826182100_create_analysis_sessions.sql` (Creates `analysis_sessions` table)
 
-5. **Start Development Server**:
+6. **Start the Development Server**:
    ```bash
    npm run dev
    ```
-   Navigate to [http://localhost:3000](http://localhost:3000) in your browser.
+   Navigate to [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## 🧪 Testing the Full RAG Flow
+## 🧪 Testing & Verification
 
-Follow this manual walkthrough to test the end-to-end pipeline:
+```bash
+# 1. Run Adaptive RAG verification tests
+npm test
 
-1. **Register / Sign In**: Create a new account or log in via the `/login` screen.
-2. **Upload a Document**:
-   - Go to **Documents** in the sidebar.
-   - Click **+ Upload Document**.
-   - Select an insurance document (PDF or image).
-   - Verify that the OCR processing status transitions to **Complete**.
-3. **Ask the Copilot**:
-   - Navigate to **AI Copilot**.
-   - Ask a question specifically answered by your uploaded document (e.g., *"What is the deductible limit stated in my policy?"*).
-   - Confirm that the assistant returns a concise answer grounded in your document.
-   - Inspect the **Sources** drawer to verify chunk text, file name, and similarity rating.
-4. **Run an Analysis**:
-   - Navigate to **Analysis**.
-   - Click **Coverage & Deductible Assessment** or type a custom prompt.
-   - Review the saved result in **Analysis History** and test **Export**.
-5. **Track Milestones**:
-   - Navigate to **Claim Timeline** to record milestones for your claim.
+# 2. Run TypeScript type check
+npx tsc --noEmit
+
+# 3. Run ESLint
+npm run lint
+
+# 4. Test production build
+npm run build
+```
 
 ---
 
-## 🗺️ Current Product Navigation
+## 🗄️ Database & Migrations
 
-The application navigation features 6 core views:
+The database is built on PostgreSQL with Supabase:
 
-- ◈ **Dashboard** — Application overview, recent document activity, and quick AI triggers.
-- ▧ **Documents** — Upload, inspect, filter, and manage policy and claim files.
-- ◆ **AI Copilot** — Grounded interactive AI chat interface with citation inspection.
-- ⊞ **Analysis** — Structured document auditing, discrepancy detection, and saved history.
-- ◎ **Claim Timeline** — Event timeline tracking for claims progression.
-- ◧ **Settings** — Profile configuration and account preferences.
+- `documents`: Stores file metadata (`storage_path`, `original_filename`, `file_size`, `file_type`, `ocr_status`, `document_type`, `user_id`).
+- `document_chunks`: Stores text chunks and their 384-dimensional vector embeddings (`vector(384)`).
+- `analysis_sessions`: Stores multi-step document extraction and comparison sessions.
+- `match_document_chunks(...)`: Custom PostgreSQL RPC function performing vector similarity search using cosine distance (`dc.embedding <=> query_embedding`) with ownership validation (`d.user_id = auth.uid()`).
 
 ---
 
-## 🧭 Roadmap
+## 🚢 Deployment
 
-- ✅ **Phase 1: Multi-Format Ingestion** — Support for PDF text parsing (`unpdf`) and image OCR (`tesseract.js`).
-- ✅ **Phase 2: Vector Search Engine** — 384-dimensional embeddings (`BAAI/bge-small-en-v1.5`) with Supabase `pgvector` RPC retrieval.
-- ✅ **Phase 3: Grounded AI Copilot** — Groq LLM integration with strict context-bounded prompts and source citations.
-- ✅ **Phase 4: Structured Analysis & History** — Coverage assessment, discrepancy auditing, saved analyses, and TXT report export.
-- ✅ **Phase 5: Claim Timeline** — Interactive claim milestone and event progression tracking.
-- 🚧 **In Progress**: Advanced multi-document side-by-side comparison visualization.
-- 🔜 **Planned**: Automated email notification digest for upcoming claim reporting deadlines.
+Claims Copilot is optimized for deployment on [Vercel](https://vercel.com) or any standard Node.js server:
 
----
-
-## 🏆 Why This Project Is Interesting
-
-Most standard AI demos focus simply on "chatting with a PDF." **Claims Copilot** goes further by addressing real-world domain requirements in insurance tech:
-
-1. **Zero Hallucination Tolerance** — Insurance answers must be accurate. Grounding every response strictly in vector-retrieved text snippets prevents dangerous model assumptions.
-2. **True Source Traceability** — Users can verify every line of an AI response against exact document page numbers and chunk text.
-3. **Privacy & Data Security** — Multi-tenant database RLS policies guarantee user documents and vector embeddings remain completely private.
+1. Push your repository to GitHub.
+2. Import the project into Vercel.
+3. Configure the environment variables (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GROQ_API_KEY`, `HUGGINGFACE_API_KEY`) in the Vercel Project Settings.
+4. Deploy the project (`npm run build`).
 
 ---
 
-## 🧠 Design Principles
+## 🖼️ Screenshots / Demo
 
-- **Grounding over Guesswork**: Never output an answer without verifiable document evidence.
-- **Zero Fluff UI**: Neo-brutalist functional aesthetic built for speed, contrast, and clarity.
-- **Privacy by Construction**: RLS policies enforce isolation at the database layer.
-- **Traceable Intelligence**: Every assertion connects back to a specific document chunk.
+*(Screenshots will be added here as UI demo captures are recorded)*
+
+---
+
+## 🧠 Design Philosophy
+
+> **Less dashboard spaghetti. More answers.**
+
+- **Grounded Truth over Hallucination**: AI answers are strictly bounded by retrieved context. If evidence is absent, the system explicitly declares it.
+- **Traceable Intelligence**: Every fact is backed by a clickable source chunk reference.
+- **Neo-Brutalist Clarity**: High-contrast, bold borders, and purposeful typography designed for fast visual comprehension.
+- **User-Isolated Privacy**: Multi-tenant database security at the PostgreSQL layer.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please follow these guidelines:
-
-1. Create a feature branch: `git checkout -b feature/your-feature-name`.
-2. Keep changes focused and well-documented.
-3. Ensure no credentials or `.env` files are committed.
-4. Run `npx tsc --noEmit`, `npm run lint`, and `npm run build` to verify code quality before opening a Pull Request.
+1. Fork the repository and create a feature branch: `git checkout -b feature/your-feature-name`.
+2. Ensure no sensitive keys or `.env` files are committed.
+3. Run `npm test`, `npm run lint`, and `npx tsc --noEmit` before opening a Pull Request.
 
 ---
 
