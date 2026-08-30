@@ -1,8 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import * as path from "path";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY!); // Use service role for fast mock user fetch if needed
+try { process.loadEnvFile(path.resolve(__dirname, "../.env.local")); } catch {}
+try { process.loadEnvFile(path.resolve(__dirname, "../.env")); } catch {}
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder-key";
+const supabase = createClient(supabaseUrl, serviceKey);
 
 async function main() {
   console.log("=== FINAL REGRESSION VERIFICATION ===");
